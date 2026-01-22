@@ -1,0 +1,62 @@
+name: Appium Android Tests (External APK in Repo)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  appium-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Checkout code + APK
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # 2. Setup Java (for Maven & Appium client)
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
+    # 3. Setup Node (for Appium server)
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    # 4. Install Appium server
+    - name: Install Appium
+      run: |
+        npm install -g appium
+        appium -v
+
+    # 5. Start Emulator and run tests
+    - name: Start Emulator and Execute Appium Tests
+      uses: reactivecircus/android-emulator-runner@v2
+      with:
+        api-level: 33
+        target: google_apis
+        arch: x86_64
+        profile: Nexus 6
+        emulator-options: -no-window -no-audio -no-boot-anim
+        disable-animations: true
+        script: |
+          echo "Connected devices:"
+          adb devices
+
+          echo "Starting Appium server..."
+          appium --log-level error &
+          sleep 15
+
+          echo "Running Maven tests..."
+          mvn clean test
+
+    # 6. Publish reports
+    - name: Upload Test Reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: appium-test-reports
+        path: target/surefire-reports
