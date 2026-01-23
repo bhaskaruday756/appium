@@ -33,7 +33,7 @@ jobs:
         npm install -g appium
         appium -v
 
-    # 5. Start Emulator and Run Tests (STABLE VERSION)
+    # 5. Start Emulator and Run Appium Tests (FINAL STABLE VERSION)
     - name: Start Emulator and Execute Appium Tests
       uses: reactivecircus/android-emulator-runner@v2
       with:
@@ -55,7 +55,7 @@ jobs:
           echo "Initial device list:"
           adb devices
 
-          echo "Giving emulator extra time for cold boot..."
+          echo "Giving emulator time for cold boot to stabilize..."
           sleep 60
 
           echo "Restarting ADB after cold boot..."
@@ -81,10 +81,10 @@ jobs:
           done
           '
 
-          echo "Emulator is fully booted and stable."
+          echo "Emulator fully booted and stable."
 
-          echo "Unlocking screen..."
-          adb shell input keyevent 82
+          echo "Extra stabilization delay..."
+          sleep 20
 
           echo "Starting Appium server..."
           appium --log-level error &
