@@ -37,22 +37,21 @@ jobs:
     - name: Start Emulator and Execute Appium Tests
       uses: reactivecircus/android-emulator-runner@v2
       with:
-        api-level: 33
-        target: google_apis
-        arch: x86_64
-        profile: Nexus 6
-        emulator-options: -no-window -no-audio -no-boot-anim
-        disable-animations: true
-        script: |
-          echo "Connected devices:"
-          adb devices
+       api-level: 30
+       target: default
+       arch: x86
+       profile: pixel
+       emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+       disable-animations: true
+       script: |
+        echo "Waiting for emulator..."
+        adb wait-for-device
 
-          echo "Starting Appium server..."
-          appium --log-level error &
-          sleep 15
+        echo "Emulator booted, starting Appium..."
+        appium --log-level error &
+        sleep 20
+        mvn clean test
 
-          echo "Running Maven tests..."
-          mvn clean test
 
     # 6. Publish reports
     - name: Upload Test Reports
