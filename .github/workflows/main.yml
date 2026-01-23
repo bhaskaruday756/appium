@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout code + APK
+    # 1. Checkout repository (includes APK)
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -21,39 +21,51 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
-    # 3. Setup Node (for Appium server)
+    # 3. Setup Node.js (for Appium server)
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
 
-    # 4. Install Appium server
+    # 4. Install Appium
     - name: Install Appium
       run: |
         npm install -g appium
         appium -v
 
-    # 5. Start Emulator and run tests
+    # 5. Start Android Emulator + Run Tests
     - name: Start Emulator and Execute Appium Tests
       uses: reactivecircus/android-emulator-runner@v2
       with:
-       api-level: 30
-       target: default
-       arch: x86
-       profile: pixel
-       emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
-       disable-animations: true
-       script: |
-        echo "Waiting for emulator..."
-        adb wait-for-device
+        api-level: 30
+        target: google_apis
+        arch: x86
+        profile: pixel
+        emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect
+        disable-animations: true
+        script: |
+          echo "Checking connected devices..."
+          adb devices
 
-        echo "Emulator booted, starting Appium..."
-        appium --log-level error &
-        sleep 20
-        mvn clean test
+          echo "Waiting for emulator to be ready..."
+          adb wait-for-device
 
+          echo "Confirming emulator boot completion..."
+          until adb shell getprop sys.boot_completed | grep -m 1 '1'; do
+            echo "Emulator not ready yet, waiting..."
+            sleep 10
+          done
 
-    # 6. Publish reports
+          echo "Emulator is fully booted."
+
+          echo "Starting Appium server..."
+          appium --log-level error &
+          sleep 20
+
+          echo "Running Appium tests..."
+          mvn clean test
+
+    # 6. Upload test reports
     - name: Upload Test Reports
       uses: actions/upload-artifact@v4
       with:
