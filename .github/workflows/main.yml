@@ -10,69 +10,54 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Java
-      uses: actions/setup-java@v4
-      with:
-        distribution: temurin
-        java-version: '17'
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-    - name: Install Appium
-      run: |
-        npm install -g appium
-        appium -v
+      - name: Install Appium
+        run: |
+          npm install -g appium
+          appium -v
 
-    - name: Start Emulator and Run Tests
-      uses: reactivecircus/android-emulator-runner@v2
-      with:
-        api-level: 30
-        target: google_apis
-        arch: x86
-        profile: pixel
-        emulator-options: >
-          -no-window
-          -no-audio
-          -no-boot-anim
-          -no-snapshot
-          -gpu swiftshader_indirect
-        script: |
-          echo "Waiting for emulator..."
-          adb wait-for-device
+      - name: Start Android Emulator and Run Appium Tests
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL: 60
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86
+          profile: pixel
+          disable-animations: true
+          emulator-options: >
+            -no-window
+            -no-audio
+            -no-boot-anim
+            -no-snapshot
+            -gpu swiftshader_indirect
+          script: |
+            echo "Emulator is ready (handled by runner)"
+            adb devices
 
-          echo "Connected devices:"
-          adb devices
+            echo "Starting Appium server..."
+            appium --log-level error &
+            sleep 20
 
-          echo "Waiting for Android boot completion..."
-          timeout 600 bash -c '
-          until adb shell getprop sys.boot_completed | grep -m 1 "1"; do
-            echo "System not booted yet..."
-            sleep 10
-          done
-          '
+            echo "Running Appium tests..."
+            mvn clean test
 
-          echo "Emulator fully booted."
-
-          echo "Disable animations..."
-          adb shell settings put global window_animation_scale 0
-          adb shell settings put global transition_animation_scale 0
-          adb shell settings put global animator_duration_scale 0
-
-          echo "Starting Appium..."
-          appium --log-level error &
-          sleep 20
-
-          echo "Running Appium tests..."
-          mvn clean test
-
-    - name: Upload Test Reports
-      uses: actions/upload-artifact@v4
-      with:
-        name: appium-test-reports
-        path: target/surefire-reports
+      - name: Upload Test Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: appium-test-reports
+          path: target/surefire-reports
