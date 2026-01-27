@@ -8,7 +8,7 @@ on:
 jobs:
   appium-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repository
@@ -27,38 +27,16 @@ jobs:
 
       - name: Install Appium and UiAutomator2 Driver
         run: |
-          npm install -g appium
+          npm install -g appium@2.11.5
           appium driver install uiautomator2
           appium -v
           appium driver list
 
-      - name: Enable KVM (for faster emulator)
+      - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-
-      - name: AVD cache
-        uses: actions/cache@v4
-        id: avd-cache
-        with:
-          path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: avd-30
-
-      - name: Create AVD and generate snapshot for caching
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 30
-          target: google_apis
-          arch: x86_64
-          profile: Nexus 6
-          force-avd-creation: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          disable-animations: false
-          script: echo "Generated AVD snapshot for caching."
 
       - name: Start Appium Server
         run: |
@@ -69,49 +47,122 @@ jobs:
           echo "Waiting for Appium to be ready..."
           timeout 30 bash -c 'until curl -s http://127.0.0.1:4723/status > /dev/null; do sleep 1; done' || exit 1
           echo "Appium server is ready"
+          curl http://127.0.0.1:4723/status
 
-      - name: Run Appium Tests with Emulator
+      - name: Run Tests with Android Emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
-          target: google_apis
+          api-level: 29
+          target: default
           arch: x86_64
           profile: Nexus 6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disk-size: 4096M
           disable-animations: true
+          force-avd-creation: false
+          emulator-boot-timeout: 600
           emulator-options: >
-            -no-snapshot-save
             -no-window
             -gpu swiftshader_indirect
             -noaudio
             -no-boot-anim
             -camera-back none
-            -memory 2048
+            -camera-front none
+            -timezone America/New_York
+            -no-snapshot-save
           script: |
-            echo "Waiting for emulator to be fully ready..."
-            adb wait-for-device
-            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+            echo "===== Emulator Boot Process ====="
             
+            # Wait for device to be detected
+            echo "Waiting for device to be detected..."
+            timeout 120 adb wait-for-device || {
+              echo "ERROR: Device not detected within 120 seconds"
+              adb devices -l
+              exit 1
+            }
+            
+            echo "Device detected! Waiting for boot completion..."
+            
+            # Wait for boot to complete with timeout
+            BOOT_TIMEOUT=300
+            ELAPSED=0
+            while [ $ELAPSED -lt $BOOT_TIMEOUT ]; do
+              BOOT_COMPLETED=$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')
+              if [ "$BOOT_COMPLETED" = "1" ]; then
+                echo "✓ sys.boot_completed = 1"
+                break
+              fi
+              echo "Waiting for boot... ($ELAPSED seconds elapsed)"
+              sleep 5
+              ELAPSED=$((ELAPSED + 5))
+            done
+            
+            if [ "$BOOT_COMPLETED" != "1" ]; then
+              echo "ERROR: Boot did not complete within $BOOT_TIMEOUT seconds"
+              adb shell getprop | grep boot
+              exit 1
+            fi
+            
+            # Additional wait for services
             echo "Waiting for package manager..."
-            adb shell 'while [[ -z $(getprop dev.bootcomplete) ]]; do sleep 1; done'
+            timeout 60 bash -c 'until adb shell pm path android > /dev/null 2>&1; do sleep 2; done' || {
+              echo "WARNING: Package manager not ready, continuing anyway..."
+            }
             
-            echo "Additional stability wait..."
-            sleep 10
+            # Extra stability wait
+            echo "Additional stability wait (20 seconds)..."
+            sleep 20
             
-            echo "Verifying device status..."
+            # Verify device is online
+            echo "===== Device Status ====="
             adb devices -l
-            adb shell getprop ro.build.version.sdk
+            DEVICE_STATE=$(adb get-state 2>/dev/null)
+            echo "Device state: $DEVICE_STATE"
             
+            if [ "$DEVICE_STATE" != "device" ]; then
+              echo "ERROR: Device is not in 'device' state"
+              exit 1
+            fi
+            
+            # Device info
+            echo "===== Device Information ====="
+            echo "SDK Version: $(adb shell getprop ro.build.version.sdk)"
+            echo "Android Version: $(adb shell getprop ro.build.version.release)"
+            echo "Device Model: $(adb shell getprop ro.product.model)"
+            echo "Device Manufacturer: $(adb shell getprop ro.product.manufacturer)"
+            
+            # Unlock screen
             echo "Unlocking screen..."
             adb shell input keyevent 82
+            sleep 2
             
-            echo "Running Appium tests..."
-            mvn clean test -Dtest=NotepadTest
+            # Verify Appium is still running
+            echo "===== Appium Status ====="
+            if ! curl -s http://127.0.0.1:4723/status > /dev/null; then
+              echo "ERROR: Appium server is not responding"
+              cat appium.log
+              exit 1
+            fi
+            echo "✓ Appium server is responsive"
+            
+            # Run Maven tests
+            echo "===== Starting Maven Tests ====="
+            mvn clean test -Dtest=NotepadTest || {
+              echo "===== Tests Failed ====="
+              echo "Appium logs:"
+              tail -100 appium.log
+              exit 1
+            }
 
       - name: Stop Appium Server
         if: always()
         run: |
           if [ -f appium.pid ]; then
-            kill $(cat appium.pid) || true
+            echo "Stopping Appium server..."
+            kill $(cat appium.pid) 2>/dev/null || true
+            rm appium.pid
           fi
 
       - name: Upload Appium Logs
@@ -120,15 +171,17 @@ jobs:
         with:
           name: appium-logs
           path: appium.log
+          if-no-files-found: warn
 
       - name: Upload Test Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: appium-test-reports
+          name: test-reports
           path: target/surefire-reports
+          if-no-files-found: warn
 
-      - name: Upload Screenshots (if any)
+      - name: Upload Screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
