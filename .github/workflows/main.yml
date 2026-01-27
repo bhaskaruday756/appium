@@ -47,7 +47,6 @@ jobs:
           -no-boot-anim
           -no-snapshot
           -gpu swiftshader_indirect
-        disable-animations: true
         script: |
           echo "Waiting for emulator process..."
           adb wait-for-device
