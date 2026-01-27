@@ -8,6 +8,7 @@ on:
 jobs:
   appium-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -24,40 +25,113 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Appium
+      - name: Install Appium and UiAutomator2 Driver
         run: |
           npm install -g appium
+          appium driver install uiautomator2
           appium -v
+          appium driver list
 
-      - name: Start Android Emulator and Run Appium Tests
+      - name: Enable KVM (for faster emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: AVD cache
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-30
+
+      - name: Create AVD and generate snapshot for caching
+        if: steps.avd-cache.outputs.cache-hit != 'true'
         uses: reactivecircus/android-emulator-runner@v2
-        env:
-          ANDROID_EMULATOR_WAIT_TIME_BEFORE_KILL: 60
         with:
           api-level: 30
           target: google_apis
-          arch: x86
-          profile: pixel
+          arch: x86_64
+          profile: Nexus 6
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: false
+          script: echo "Generated AVD snapshot for caching."
+
+      - name: Start Appium Server
+        run: |
+          echo "Starting Appium server in background..."
+          appium --log-level info --log appium.log &
+          echo $! > appium.pid
+          sleep 5
+          echo "Waiting for Appium to be ready..."
+          timeout 30 bash -c 'until curl -s http://127.0.0.1:4723/status > /dev/null; do sleep 1; done' || exit 1
+          echo "Appium server is ready"
+
+      - name: Run Appium Tests with Emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: Nexus 6
           disable-animations: true
           emulator-options: >
+            -no-snapshot-save
             -no-window
-            -no-audio
-            -no-boot-anim
-            -no-snapshot
             -gpu swiftshader_indirect
+            -noaudio
+            -no-boot-anim
+            -camera-back none
+            -memory 2048
           script: |
-            echo "Emulator is ready (handled by runner)"
-            adb devices
-
-            echo "Starting Appium server..."
-            appium --log-level error &
-            sleep 20
-
+            echo "Waiting for emulator to be fully ready..."
+            adb wait-for-device
+            adb shell 'while [[ -z $(getprop sys.boot_completed) ]]; do sleep 1; done'
+            
+            echo "Waiting for package manager..."
+            adb shell 'while [[ -z $(getprop dev.bootcomplete) ]]; do sleep 1; done'
+            
+            echo "Additional stability wait..."
+            sleep 10
+            
+            echo "Verifying device status..."
+            adb devices -l
+            adb shell getprop ro.build.version.sdk
+            
+            echo "Unlocking screen..."
+            adb shell input keyevent 82
+            
             echo "Running Appium tests..."
-            mvn clean test
+            mvn clean test -Dtest=NotepadTest
+
+      - name: Stop Appium Server
+        if: always()
+        run: |
+          if [ -f appium.pid ]; then
+            kill $(cat appium.pid) || true
+          fi
+
+      - name: Upload Appium Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: appium-logs
+          path: appium.log
 
       - name: Upload Test Reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: appium-test-reports
           path: target/surefire-reports
+
+      - name: Upload Screenshots (if any)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-screenshots
+          path: target/screenshots
+          if-no-files-found: ignore
