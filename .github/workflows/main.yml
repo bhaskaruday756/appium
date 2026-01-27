@@ -1,4 +1,4 @@
-name: Appium Android Tests (External APK in Repo)
+name: Appium Android Tests
 
 on:
   push:
@@ -10,31 +10,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # 2. Setup Java
     - name: Set up Java
       uses: actions/setup-java@v4
       with:
-        distribution: 'temurin'
+        distribution: temurin
         java-version: '17'
 
-    # 3. Setup Node.js
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
 
-    # 4. Install Appium
     - name: Install Appium
       run: |
         npm install -g appium
         appium -v
 
-    # 5. Start Emulator and Run Appium Tests (FINAL STABLE VERSION)
-    - name: Start Emulator and Execute Appium Tests
+    - name: Start Emulator and Run Tests
       uses: reactivecircus/android-emulator-runner@v2
       with:
         api-level: 30
@@ -48,31 +43,13 @@ jobs:
           -no-snapshot
           -gpu swiftshader_indirect
         script: |
-          echo "Waiting for emulator process..."
+          echo "Waiting for emulator..."
           adb wait-for-device
 
-          echo "Initial device list:"
+          echo "Connected devices:"
           adb devices
 
-          echo "Giving emulator time for cold boot to stabilize..."
-          sleep 60
-
-          echo "Restarting ADB after cold boot..."
-          adb kill-server
-          adb start-server
-          sleep 10
-
-          echo "Waiting for device to become ONLINE..."
-          timeout 600 bash -c '
-          until adb devices | grep emulator | grep device; do
-            echo "Device still offline, waiting..."
-            sleep 10
-          done
-          '
-
-          echo "Device is ONLINE."
-
-          echo "Waiting for Android system to complete boot..."
+          echo "Waiting for Android boot completion..."
           timeout 600 bash -c '
           until adb shell getprop sys.boot_completed | grep -m 1 "1"; do
             echo "System not booted yet..."
@@ -80,19 +57,20 @@ jobs:
           done
           '
 
-          echo "Emulator fully booted and stable."
+          echo "Emulator fully booted."
 
-          echo "Extra stabilization delay..."
-          sleep 20
+          echo "Disable animations..."
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
 
-          echo "Starting Appium server..."
+          echo "Starting Appium..."
           appium --log-level error &
           sleep 20
 
           echo "Running Appium tests..."
           mvn clean test
 
-    # 6. Upload reports
     - name: Upload Test Reports
       uses: actions/upload-artifact@v4
       with:
