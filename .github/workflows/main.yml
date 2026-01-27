@@ -1,4 +1,4 @@
-name: Appium Android Tests (STABLE FINAL)
+name: Appium Android Tests 
 
 on:
   push:
@@ -11,7 +11,7 @@ jobs:
     timeout-minutes: 45
 
     steps:
-    # 1. Checkout
+    # 1. Checkout repository
     - name: Checkout repository
       uses: actions/checkout@v4
 
@@ -22,13 +22,13 @@ jobs:
         distribution: temurin
         java-version: '17'
 
-    # 3. Setup Node
+    # 3. Setup Node.js
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '20'
 
-    # 4. Install Appium + Driver
+    # 4. Install Appium and UiAutomator2 driver
     - name: Install Appium and UiAutomator2
       run: |
         echo "Installing Appium..."
@@ -41,16 +41,16 @@ jobs:
         echo "Installed drivers:"
         appium driver list
 
-    # 5. Start Emulator + Run Tests
+    # 5. Start Emulator + Run Appium Tests (FINAL WORKING VERSION)
     - name: Start Emulator and Run Appium Tests
       uses: reactivecircus/android-emulator-runner@v2
       with:
         api-level: 30
-        target: google_apis          # 🔹 FIXED (stable image)
-        arch: x86                   # 🔹 FIXED (CI compatible)
+        target: google_apis            # MUST use google_apis
+        arch: x86                     # MUST be x86 (not x86_64)
         profile: pixel
         cores: 2
-        ram-size: 4096M
+        ram-size: 3072M
         heap-size: 512M
         disk-size: 4096M
         disable-animations: true
@@ -62,25 +62,26 @@ jobs:
           -no-boot-anim
           -no-snapshot
           -gpu swiftshader_indirect
+          -accel off                  # 🔴 CRITICAL FIX (software mode)
         script: |
           echo "===== Emulator Boot Process ====="
 
-          echo "Waiting for emulator device..."
+          echo "Waiting for emulator process..."
           adb wait-for-device
 
           echo "Allowing cold boot stabilization..."
           sleep 60
 
-          echo "Restarting adb..."
+          echo "Restarting adb after emulator start..."
           adb kill-server
           adb start-server
           sleep 10
 
-          echo "Waiting for device to be ONLINE..."
+          echo "Waiting for device to become ONLINE..."
           while true; do
             STATE=$(adb devices | grep emulator | awk '{print $2}')
             if [ "$STATE" = "device" ]; then
-              echo "Device is ONLINE."
+              echo "✓ Device is ONLINE."
               break
             fi
             echo "Device state: $STATE , waiting..."
@@ -107,7 +108,7 @@ jobs:
           echo "Android Version: $(adb shell getprop ro.build.version.release)"
           echo "Device Model: $(adb shell getprop ro.product.model)"
 
-          # 🔹 DO NOT UNLOCK SCREEN (REMOVED — caused DeadSystemException)
+          # 🔴 DO NOT UNLOCK SCREEN (causes DeadSystemException in CI)
 
           echo "Starting Appium server..."
           appium --log-level info --log appium.log &
@@ -117,7 +118,7 @@ jobs:
           curl -s http://127.0.0.1:4723/status
 
           echo "===== Running Maven Tests ====="
-          mvn clean test -Dtest=NotepadTest || exit 1
+          mvn clean test -Dtest=NotepadTest
 
     # 6. Upload Appium Logs
     - name: Upload Appium Logs
