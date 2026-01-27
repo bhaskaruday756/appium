@@ -1,4 +1,4 @@
-name: Appium Android Tests
+name: Appium Android Tests (FIXED)
 
 on:
   push:
@@ -25,11 +25,16 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Appium and UiAutomator2 Driver
+      - name: Install Appium and UiAutomator2 Driver (FIXED VERSION)
         run: |
-          npm install -g appium@2.11.5
-          appium driver install uiautomator2
+          echo "Installing Appium 3.x (latest stable)..."
+          npm install -g appium
           appium -v
+          
+          echo "Installing UiAutomator2 driver..."
+          appium driver install uiautomator2
+          
+          echo "Verifying installation..."
           appium driver list
 
       - name: Enable KVM
@@ -136,6 +141,7 @@ jobs:
             # Unlock screen
             echo "Unlocking screen..."
             adb shell input keyevent 82
+            adb shell wm dismiss-keyguard
             sleep 2
             
             # Verify Appium is still running
